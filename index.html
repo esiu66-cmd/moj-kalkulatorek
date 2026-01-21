@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Harmonogram Płatności UE</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body { background-color: #F0F4F8; }
+        html { scroll-behavior: smooth; }
+        /* Style dla tabeli, żeby nagłówek był zawsze widoczny przy długim przewijaniu */
+        thead th { position: sticky; top: 0; z-index: 10; }
+    </style>
+</head>
+<body>
+
+    <div id="root"></div>
+
+    <form name="kontakt" netlify netlify-honeypot="bot-field" hidden>
+        <input type="text" name="grantValue" />
+        <input type="text" name="totalValue" />
+    </form>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- IKONY WBUDOWANE W KOD (Rozwiązanie problemu z ładowaniem) ---
+        const IconBase = ({ path, className }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="24" height="24" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className}
+            >
+                {path}
+            </svg>
+        );
+
+        const Plus = (props) => <IconBase {...props} path={<><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></>} />;
+        const Trash2 = (props) => <IconBase {...props} path={<><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></>} />;
+        const AlertCircle = (props) => <IconBase {...props} path={<><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></>} />;
+        const CheckCircle = (props) => <IconBase {...props} path={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></>} />;
+        const Info = (props) => <IconBase {...props} path={<><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></>} />;
+        const Sparkles = (props) => <IconBase {...props} path={<><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></>} />;
+        const Flag = (props) => <IconBase {...props} path={<><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></>} />;
+        const Edit2 = (props) => <IconBase {...props} path={<><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></>} />;
+        const Save = (props) => <IconBase {...props} path={<><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></>} />;
+        const X = (props) => <IconBase {...props} path={<><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></>} />;
+        const Download = (props) => <IconBase {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></>} />;
+        const Upload = (props) => <IconBase {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></>} />;
+
+        // --- GŁÓWNA APLIKACJA ---
+
+        const PaymentSchedule = () => {
+          const [projectSettings, setProjectSettings] = useState({
+            grantValue: '', 
+            totalValue: ''
+          });
+
+          const [rows, setRows] = useState([]);
+          const [editingId, setEditingId] = useState(null);
+
+          const [formData, setFormData] = useState({
+            currentExpensesEU: '',     
+            currentExpensesState: '', 
+            capitalExpensesEU: '',     
+            capitalExpensesState: '', 
+            settledGrant: '', 
+            settledOwn: '',   
+            periodStart: '',
+            periodEnd: '',
+            isFinal: false
+          });
+
+          const [validationStatus, setValidationStatus] = useState({
+            isValid: true,
+            message: '',
+            shortfall: 0,
+            type: 'success'
+          });
+
+          const [totalsValidation, setTotalsValidation] = useState({
+            grantMatch: null,
+            valueMatch: null
+          });
+
+          const fileInputRef = useRef(null);
+
+          // --- Helpers ---
+          const formatCurrency = (value) => {
+            if (value === '' || value === null || value === undefined) return '0,00 zł';
+            return new Intl.NumberFormat('pl-PL', {
+              style: 'currency',
+              currency: 'PLN',
+              minimumFractionDigits: 2
+            }).format(value);
+          };
+
+          const formatPercent = (value) => {
+            if (value === null || value === undefined || isNaN(value)) return '-';
+            return new Intl.NumberFormat('pl-PL', {
+              style: 'percent',
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }).format(value / 100);
+          };
+
+          const formatDate = (dateString) => {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return isNaN(date.getTime()) 
+              ? dateString 
+              : new Intl.DateTimeFormat('pl-PL').format(date);
+          };
+
+          // --- CSV Export/Import ---
+          const handleExportCSV = () => {
+            const bom = "\uFEFF"; 
+            const settingsHeader = `Dofinansowanie;${projectSettings.grantValue};Wartość Projektu;${projectSettings.totalValue}\n`;
+            const columnsHeader = `Lp;Data Od;Data Do;Bieżące UE;Bieżące BP;Majątkowe UE;Majątkowe BP;Rozliczone Grant;Rozliczone Wkład Własny;Czy Końcowy\n`;
+
+            const rowsData = rows.map(row => {
+              return [
+                row.lp,
+                row.periodStart,
+                row.periodEnd,
+                row.currentExpensesEU || 0,
+                row.currentExpensesState || 0,
+                row.capitalExpensesEU || 0,
+                row.capitalExpensesState || 0,
+                row.settledGrant || 0,
+                row.settledOwn || 0,
+                row.isFinal ? 'TAK' : 'NIE'
+              ].join(';');
+            }).join('\n');
+
+            const csvContent = bom + settingsHeader + columnsHeader + rowsData;
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `harmonogram_platnosci_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          };
+
+          const handleImportClick = () => {
+            fileInputRef.current.click();
+          };
+
+          const handleFileChange = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const text = e.target.result;
+                const lines = text.split('\n').filter(line => line.trim() !== '');
+                
+                if (lines.length < 2) {
+                  alert('Nieprawidłowy format pliku CSV.');
+                  return;
+                }
+
+                const settingsLine = lines[0].split(';');
+                const importedSettings = {
+                  grantValue: settingsLine[1] ? parseFloat(settingsLine[1]) : '',
+                  totalValue: settingsLine[3] ? parseFloat(settingsLine[3]) : ''
+                };
+                setProjectSettings(importedSettings);
+
+                const importedRows = [];
+                for (let i = 2; i < lines.length; i++) {
+                  const cells = lines[i].split(';');
+                  if (cells.length < 9) continue;
+
+                  const cEU = parseFloat(cells[3]) || 0;
+                  const cState = parseFloat(cells[4]) || 0;
+                  const capEU = parseFloat(cells[5]) || 0;
+                  const capState = parseFloat(cells[6]) || 0;
+                  const reqAmount = cEU + cState + capEU + capState;
+
+                  importedRows.push({
+                    id: Date.now() + i,
+                    lp: parseInt(cells[0]) || (i - 1),
+                    periodStart: cells[1],
+                    periodEnd: cells[2],
+                    currentExpensesEU: cEU,
+                    currentExpensesState: cState,
+                    capitalExpensesEU: capEU,
+                    capitalExpensesState: capState,
+                    requestedAmount: reqAmount,
+                    settledGrant: parseFloat(cells[7]) || 0,
+                    settledOwn: parseFloat(cells[8]) || 0,
+                    isFinal: cells[9] && cells[9].trim().toUpperCase() === 'TAK'
+                  });
+                }
+
+                setRows(importedRows);
+                event.target.value = '';
+                
+              } catch (error) {
+                console.error("Błąd importu:", error);
+                alert("Wystąpił błąd podczas importu pliku CSV. Sprawdź format danych.");
+              }
+            };
+            reader.readAsText(file);
+          };
+
+          // --- Obliczenia Sum ---
+          const totals = useMemo(() => rows.reduce((acc, row) => ({
+            currentEU: acc.currentEU + parseFloat(row.currentExpensesEU || 0),
+            currentState: acc.currentState + parseFloat(row.currentExpensesState || 0),
+            capitalEU: acc.capitalEU + parseFloat(row.capitalExpensesEU || 0),
+            capitalState: acc.capitalState + parseFloat(row.capitalExpensesState || 0),
+            requested: acc.requested + parseFloat(row.requestedAmount || 0),
+            
+            settledGrant: acc.settledGrant + parseFloat(row.settledGrant || 0),
+            settledOwn: acc.settledOwn + parseFloat(row.settledOwn || 0),
+            settledTotal: acc.settledTotal + (parseFloat(row.settledGrant || 0) + parseFloat(row.settledOwn || 0))
+          }), { 
+            currentEU: 0, currentState: 0, capitalEU: 0, capitalState: 0, requested: 0, 
+            settledGrant: 0, settledOwn: 0, settledTotal: 0 
+          }), [rows]);
+
+          const validationBaseTotals = useMemo(() => {
+            if (editingId === null) return totals; 
+            return rows.reduce((acc, row) => {
+              if (row.id === editingId) return acc;
+              return {
+                requested: acc.requested + parseFloat(row.requestedAmount || 0),
+                settledGrant: acc.settledGrant + parseFloat(row.settledGrant || 0),
+                settledTotal: acc.settledTotal + (parseFloat(row.settledGrant || 0) + parseFloat(row.settledOwn || 0))
+              };
+            }, { requested: 0, settledGrant: 0, settledTotal: 0 });
+          }, [rows, totals, editingId]);
+
+          // --- Walidacja ---
+          useEffect(() => {
+            const currentEUInput = parseFloat(formData.currentExpensesEU) || 0;
+            const currentStateInput = parseFloat(formData.currentExpensesState) || 0;
+            const capitalEUInput = parseFloat(formData.capitalExpensesEU) || 0;
+            const capitalStateInput = parseFloat(formData.capitalExpensesState) || 0;
+            const totalRequestedInput = currentEUInput + currentStateInput + capitalEUInput + capitalStateInput;
+
+            const settledGrantInput = parseFloat(formData.settledGrant) || 0;
+            const settledOwnInput = parseFloat(formData.settledOwn) || 0;
+            const totalSettledInput = settledGrantInput + settledOwnInput;
+            
+            const grantLimit = parseFloat(projectSettings.grantValue) || Infinity;
+            const totalValueLimit = parseFloat(projectSettings.totalValue) || Infinity;
+
+            const newTotalRequested = validationBaseTotals.requested + totalRequestedInput;
+            const newTotalSettled = validationBaseTotals.settledTotal + totalSettledInput;
+
+            if (projectSettings.grantValue && newTotalRequested > grantLimit + 0.01) {
+              setValidationStatus({
+                isValid: false,
+                message: `Przekroczono dofinansowanie (wnioskowane)! Pozostało: ${formatCurrency(Math.max(0, grantLimit - validationBaseTotals.requested))}`,
+                shortfall: newTotalRequested - grantLimit,
+                type: 'error'
+              });
+              return;
+            }
+
+            if (projectSettings.totalValue && newTotalSettled > totalValueLimit + 0.01) {
+              setValidationStatus({
+                isValid: false,
+                message: `Przekroczono wartość projektu! Pozostało: ${formatCurrency(Math.max(0, totalValueLimit - validationBaseTotals.settledTotal))}`,
+                shortfall: newTotalSettled - totalValueLimit,
+                type: 'error'
+              });
+              return;
+            }
+
+            let currentIndex = rows.length; 
+            if (editingId !== null) {
+                currentIndex = rows.findIndex(r => r.id === editingId);
+                if (currentIndex === -1) currentIndex = rows.length;
+            }
+
+            if (currentIndex === 0) {
+              setValidationStatus({ 
+                isValid: true, 
+                message: 'Pierwsza transza - zasada rozliczenia 75% nie dotyczy.', 
+                shortfall: 0,
+                type: 'success'
+              });
+              return;
+            }
+
+            const previousRows = rows.slice(0, currentIndex);
+            const totalGrantReceivedSoFar = previousRows.reduce((acc, r) => acc + (parseFloat(r.requestedAmount) || 0), 0);
+            const settledGrantFromPrevious = previousRows.reduce((acc, r) => acc + (parseFloat(r.settledGrant) || 0), 0);
+            
+            const totalGrantSettledWithCurrent = settledGrantFromPrevious + settledGrantInput;
+
+            if (formData.isFinal) {
+               if (!projectSettings.grantValue || grantLimit <= 0) {
+                  setValidationStatus({ isValid: false, message: 'Wprowadź kwotę dofinansowania w nagłówku, aby zweryfikować wniosek końcowy.', shortfall: 0, type: 'error' });
+                  return;
+               }
+
+               const diff = grantLimit - totalGrantSettledWithCurrent;
+               
+               if (Math.abs(diff) < 0.02) { 
+                 setValidationStatus({ isValid: true, message: 'Wniosek końcowy poprawny: Dofinansowanie w pełni rozliczone.', shortfall: 0, type: 'success' });
+               } else if (diff > 0) {
+                 setValidationStatus({
+                  isValid: false,
+                  message: `We wniosku końcowym suma rozliczeń z grantu musi być równa dofinansowaniu. Brakuje: ${formatCurrency(diff)}.`,
+                  shortfall: diff,
+                  type: 'error'
+                 });
+               } else {
+                 setValidationStatus({
+                  isValid: false,
+                  message: `Przekroczono kwotę dofinansowania w rozliczeniach o ${formatCurrency(Math.abs(diff))}.`,
+                  shortfall: diff,
+                  type: 'error'
+                 });
+               }
+               return;
+            }
+
+            const requiredThreshold = totalGrantReceivedSoFar * 0.75;
+            const isThresholdMet = totalGrantSettledWithCurrent >= requiredThreshold;
+            const shortfall = requiredThreshold - totalGrantSettledWithCurrent;
+
+            if (isThresholdMet) {
+              const currentPercent = totalGrantReceivedSoFar > 0 ? (totalGrantSettledWithCurrent / totalGrantReceivedSoFar) * 100 : 0;
+              setValidationStatus({ isValid: true, message: `Warunek spełniony. Rozliczono ${currentPercent.toFixed(2)}% otrzymanej dotacji (wymagane 75%).`, shortfall: 0, type: 'success' });
+            } else {
+              setValidationStatus({
+                isValid: false,
+                message: `Nie rozliczono 75% otrzymanych dotacji. Rozliczono: ${formatCurrency(totalGrantSettledWithCurrent)} z wymaganych ${formatCurrency(requiredThreshold)}.`,
+                shortfall: shortfall,
+                type: 'error'
+              });
+            }
+          }, [formData, projectSettings, validationBaseTotals, rows, editingId]); 
+
+          useEffect(() => {
+            const targetGrant = parseFloat(projectSettings.grantValue) || 0;
+            const targetValue = parseFloat(projectSettings.totalValue) || 0;
+            const grantDiff = Math.abs(totals.requested - targetGrant);
+            const valueDiff = Math.abs(totals.settledTotal - targetValue);
+            
+            setTotalsValidation({
+              grantMatch: targetGrant > 0 ? grantDiff < 0.02 : null,
+              valueMatch: targetValue > 0 ? valueDiff < 0.02 : null,
+            });
+          }, [totals, projectSettings]);
+
+          const handleProjectSettingChange = (e) => {
+            setProjectSettings(prev => ({ ...prev, [e.target.name]: e.target.value }));
+          };
+
+          const handleInputChange = (e) => {
+            const { name, value, checked } = e.target;
+            if (name === 'isFinal') {
+              setFormData(prev => ({ 
+                ...prev, 
+                isFinal: checked, 
+                currentExpensesEU: checked ? 0 : prev.currentExpensesEU,
+                currentExpensesState: checked ? 0 : prev.currentExpensesState,
+                capitalExpensesEU: checked ? 0 : prev.capitalExpensesEU,
+                capitalExpensesState: checked ? 0 : prev.capitalExpensesState, 
+              }));
+            } else {
+              setFormData(prev => ({ ...prev, [name]: value }));
+            }
+          };
+
+          const handleSubmit = (e) => {
+            e.preventDefault();
+            if (!formData.periodStart || !formData.periodEnd) return;
+            
+            const currentEU = parseFloat(formData.currentExpensesEU) || 0;
+            const currentState = parseFloat(formData.currentExpensesState) || 0;
+            const capitalEU = parseFloat(formData.capitalExpensesEU) || 0;
+            const capitalState = parseFloat(formData.capitalExpensesState) || 0;
+            const requestedSum = currentEU + currentState + capitalEU + capitalState;
+
+            const settledGrant = parseFloat(formData.settledGrant) || 0;
+            const settledOwn = parseFloat(formData.settledOwn) || 0;
+
+            if (!formData.isFinal && requestedSum <= 0) return;
+            if (!validationStatus.isValid) return;
+
+            const rowData = {
+              requestedAmount: requestedSum,
+              currentExpensesEU: currentEU,
+              currentExpensesState: currentState,
+              currentExpenses: currentEU + currentState,
+              capitalExpensesEU: capitalEU,
+              capitalExpensesState: capitalState,
+              capitalExpenses: capitalEU + capitalState,
+              settledGrant: settledGrant,
+              settledOwn: settledOwn,
+              periodStart: formData.periodStart,
+              periodEnd: formData.periodEnd,
+              isFinal: formData.isFinal
+            };
+
+            if (editingId) {
+              const updatedRows = rows.map(row => row.id === editingId ? { ...row, ...rowData } : row);
+              setRows(updatedRows);
+              setEditingId(null);
+            } else {
+              const newRow = { id: Date.now(), lp: rows.length + 1, ...rowData };
+              setRows([...rows, newRow]);
+            }
+            
+            setFormData({ 
+              currentExpensesEU: '', currentExpensesState: '', 
+              capitalExpensesEU: '', capitalExpensesState: '',
+              settledGrant: '', settledOwn: '',
+              periodStart: '', periodEnd: '', isFinal: false 
+            });
+          };
+
+          const handleEditRow = (row) => {
+            setEditingId(row.id);
+            setFormData({
+              currentExpensesEU: row.currentExpensesEU || 0,
+              currentExpensesState: row.currentExpensesState || 0,
+              capitalExpensesEU: row.capitalExpensesEU || 0,
+              capitalExpensesState: row.capitalExpensesState || 0,
+              settledGrant: row.settledGrant || 0,
+              settledOwn: row.settledOwn || 0,
+              periodStart: row.periodStart,
+              periodEnd: row.periodEnd,
+              isFinal: row.isFinal || false
+            });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          };
+
+          const handleCancelEdit = () => {
+            setEditingId(null);
+            setFormData({ 
+              currentExpensesEU: '', currentExpensesState: '', 
+              capitalExpensesEU: '', capitalExpensesState: '',
+              settledGrant: '', settledOwn: '',
+              periodStart: '', periodEnd: '', isFinal: false 
+            });
+          };
+
+          const handleDeleteRow = (id) => {
+            if (editingId === id) handleCancelEdit();
+            const updatedRows = rows.filter(row => row.id !== id).map((row, index) => ({ ...row, lp: index + 1 }));
+            setRows(updatedRows);
+          };
+
+          const isScheduleClosed = rows.some(r => r.isFinal) && !editingId;
+          const currentFormTotal = (parseFloat(formData.currentExpensesEU)||0) + (parseFloat(formData.currentExpensesState)||0) + (parseFloat(formData.capitalExpensesEU)||0) + (parseFloat(formData.capitalExpensesState)||0);
+
+          return (
+            <div className="min-h-screen bg-[#F0F4F8] p-4 md:p-8 font-sans text-[#003399]">
+              <div className="max-w-[1600px] mx-auto space-y-6">
+                
+                {/* NAGŁÓWEK UE */}
+                <div className="bg-[#003399] p-6 rounded-xl shadow-lg border-2 border-[#FFCC00] text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                     <div className="grid grid-cols-4 gap-2">
+                        {[...Array(12)].map((_, i) => <div key={i} className="text-[#FFCC00] text-2xl">★</div>)}
+                     </div>
+                  </div>
+
+                  {/* Przyciski Eksport/Import */}
+                  <div className="absolute top-4 right-4 flex gap-2 z-20">
+                     <input 
+                       type="file" 
+                       accept=".csv" 
+                       ref={fileInputRef} 
+                       onChange={handleFileChange} 
+                       className="hidden" 
+                     />
+                     <button 
+                        onClick={handleImportClick}
+                        className="bg-white/10 hover:bg-white/20 border border-white/30 text-white p-2 rounded-lg flex items-center gap-2 text-xs transition"
+                        title="Importuj z CSV"
+                     >
+                        <Upload className="w-4 h-4" /> Import CSV
+                     </button>
+                     <button 
+                        onClick={handleExportCSV}
+                        className="bg-[#FFCC00] hover:bg-[#ffdb4d] text-[#003399] border border-[#FFCC00] p-2 rounded-lg flex items-center gap-2 text-xs font-bold transition"
+                        title="Eksportuj do CSV"
+                     >
+                        <Download className="w-4 h-4" /> Eksport CSV
+                     </button>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10 pt-4 md:pt-0">
+                    <div className="flex items-center gap-4">
+                       <div className="w-16 h-16 rounded-full border-2 border-[#FFCC00] flex items-center justify-center bg-[#002277]">
+                          <span className="text-[#FFCC00] text-3xl font-bold">EU</span>
+                       </div>
+                       <div>
+                         <h2 className="text-2xl font-bold text-white tracking-wide">Panel Finansowy Projektu</h2>
+                         <p className="text-[#FFCC00] text-sm font-medium opacity-90">Kalkulator Harmonogramu Płatności</p>
+                       </div>
+                    </div>
+
+                    <div className="flex gap-6 w-full md:w-auto mt-4 md:mt-0">
+                       <div className="bg-white/10 p-3 rounded-lg border border-[#FFCC00]/30 backdrop-blur-sm flex-1 md:flex-none">
+                         <label className="block text-xs text-[#FFCC00] uppercase font-bold mb-1">Dofinansowanie (PLN)</label>
+                         <input 
+                           type="number"
+                           name="grantValue"
+                           value={projectSettings.grantValue}
+                           onChange={handleProjectSettingChange}
+                           placeholder="0.00"
+                           className="w-full bg-transparent border-b border-white/30 text-white font-mono text-lg focus:border-[#FFCC00] outline-none placeholder-white/30"
+                         />
+                       </div>
+                       <div className="bg-white/10 p-3 rounded-lg border border-[#FFCC00]/30 backdrop-blur-sm flex-1 md:flex-none">
+                         <label className="block text-xs text-[#FFCC00] uppercase font-bold mb-1">Wartość Projektu (PLN)</label>
+                         <input 
+                           type="number"
+                           name="totalValue"
+                           value={projectSettings.totalValue}
+                           onChange={handleProjectSettingChange}
+                           placeholder="0.00"
+                           className="w-full bg-transparent border-b border-white/30 text-white font-mono text-lg focus:border-[#FFCC00] outline-none placeholder-white/30"
+                         />
+                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sekcja Główna - Grid */}
+                <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+                  
+                  {/* Lewa kolumna - Formularz */}
+                  <div className="xl:col-span-1 space-y-6">
+                    <div className={`bg-white p-6 rounded-xl shadow-md border-t-4 border-[#003399] relative ${isScheduleClosed ? 'opacity-75 grayscale' : ''}`}>
+                      
+                      <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-[#003399]">
+                        {editingId ? <Edit2 className="w-5 h-5 text-[#FFCC00]" /> : <Plus className="w-5 h-5 text-[#FFCC00]" />}
+                        {editingId ? 'Edytuj Wniosek' : (isScheduleClosed ? 'Projekt Zamknięty' : 'Nowy Wniosek')}
+                      </h2>
+                      
+                      {!isScheduleClosed || editingId ? (
+                        <form onSubmit={handleSubmit} className="space-y-5" netlify>
+                          <div className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${formData.isFinal ? 'bg-[#FFCC00]/20 border-[#FFCC00]' : 'bg-slate-50 border-slate-200'}`}>
+                            <input type="checkbox" id="isFinal" name="isFinal" checked={formData.isFinal} onChange={handleInputChange} className="w-5 h-5 accent-[#003399] cursor-pointer" />
+                            <label htmlFor="isFinal" className="font-bold text-[#003399] cursor-pointer select-none flex items-center gap-2"><Flag className="w-4 h-4 text-[#003399]" />Wniosek Końcowy</label>
+                          </div>
+
+                          {/* Daty */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-bold text-slate-500 mb-1">Data Od</label>
+                              <input type="date" name="periodStart" value={formData.periodStart} onChange={handleInputChange} className="w-full p-2 border border-slate-300 rounded focus:border-[#003399] outline-none text-sm" required />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-500 mb-1">Data Do</label>
+                              <input type="date" name="periodEnd" value={formData.periodEnd} onChange={handleInputChange} className="w-full p-2 border border-slate-300 rounded focus:border-[#003399] outline-none text-sm" required />
+                            </div>
+                          </div>
+
+                          <hr className="border-slate-200" />
+
+                          {/* Rozliczane */}
+                          <div className="space-y-3">
+                            <label className="block text-sm font-bold text-green-700">Kwoty Rozliczane (PLN)</label>
+                            <div className="grid grid-cols-1 gap-3">
+                              <div>
+                                <span className="text-xs text-slate-500 font-semibold block mb-1">Z otrzymanych środków (Grant)</span>
+                                <input type="number" name="settledGrant" value={formData.settledGrant} onChange={handleInputChange} placeholder="0.00" step="0.01" className="w-full p-2 border border-green-200 rounded focus:border-green-600 outline-none font-mono text-sm bg-green-50/30" />
+                                <p className="text-[10px] text-slate-400 mt-1">Podstawa do weryfikacji 75%</p>
+                              </div>
+                              <div>
+                                <span className="text-xs text-slate-500 font-semibold block mb-1">Z wkładu własnego</span>
+                                <input type="number" name="settledOwn" value={formData.settledOwn} onChange={handleInputChange} placeholder="0.00" step="0.01" className="w-full p-2 border border-green-200 rounded focus:border-green-600 outline-none font-mono text-sm bg-green-50/30" />
+                              </div>
+                            </div>
+                          </div>
+
+                          <hr className="border-slate-200" />
+
+                          {/* Wnioskowane */}
+                          <div className="space-y-3">
+                            <label className="block text-sm font-bold text-[#003399]">Kwoty Wnioskowane (PLN)</label>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <span className="text-xs text-slate-500 font-semibold block mb-1">Bieżące - UE</span>
+                                <input type="number" name="currentExpensesEU" value={formData.currentExpensesEU} onChange={handleInputChange} placeholder="0.00" step="0.01" disabled={formData.isFinal} className={`w-full p-2 border rounded outline-none font-mono text-sm ${formData.isFinal ? 'bg-slate-100' : 'border-slate-300 focus:border-[#003399]'}`} />
+                              </div>
+                              <div>
+                                <span className="text-xs text-slate-500 font-semibold block mb-1">Bieżące - BP</span>
+                                <input type="number" name="currentExpensesState" value={formData.currentExpensesState} onChange={handleInputChange} placeholder="0.00" step="0.01" disabled={formData.isFinal} className={`w-full p-2 border rounded outline-none font-mono text-sm ${formData.isFinal ? 'bg-slate-100' : 'border-slate-300 focus:border-[#003399]'}`} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <span className="text-xs text-slate-500 font-semibold block mb-1">Majątkowe - UE</span>
+                                <input type="number" name="capitalExpensesEU" value={formData.capitalExpensesEU} onChange={handleInputChange} placeholder="0.00" step="0.01" disabled={formData.isFinal} className={`w-full p-2 border rounded outline-none font-mono text-sm ${formData.isFinal ? 'bg-slate-100' : 'border-slate-300 focus:border-[#003399]'}`} />
+                              </div>
+                              <div>
+                                <span className="text-xs text-slate-500 font-semibold block mb-1">Majątkowe - BP</span>
+                                <input type="number" name="capitalExpensesState" value={formData.capitalExpensesState} onChange={handleInputChange} placeholder="0.00" step="0.01" disabled={formData.isFinal} className={`w-full p-2 border rounded outline-none font-mono text-sm ${formData.isFinal ? 'bg-slate-100' : 'border-slate-300 focus:border-[#003399]'}`} />
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center bg-[#003399]/5 p-2 rounded border border-[#003399]/10">
+                              <span className="text-xs font-bold text-[#003399]">SUMA WNIOSKU:</span>
+                              <span className="font-bold font-mono text-[#003399]">{formatCurrency(currentFormTotal)}</span>
+                            </div>
+                          </div>
+
+                          {/* Walidacja Info */}
+                          <div className={`p-4 rounded-lg border-l-4 text-sm ${validationStatus.isValid ? 'bg-green-50 border-green-500 text-green-800' : 'bg-red-50 border-red-500 text-red-800'}`}>
+                            <div className="flex items-start gap-2">
+                              {validationStatus.isValid ? <CheckCircle className="w-5 h-5 shrink-0"/> : <AlertCircle className="w-5 h-5 shrink-0"/>}
+                              <div>
+                                <p className="font-bold">{validationStatus.isValid ? 'Weryfikacja OK' : 'Błąd Weryfikacji'}</p>
+                                <p className="text-xs mt-1">{validationStatus.message}</p>
+                                {!validationStatus.isValid && validationStatus.shortfall > 0 && <p className="font-bold mt-1">Różnica: {formatCurrency(Math.abs(validationStatus.shortfall))}</p>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            {editingId && <button type="button" onClick={handleCancelEdit} className="flex-1 py-3 px-4 rounded-lg font-bold border border-slate-300 text-slate-600 hover:bg-slate-100 transition flex justify-center items-center gap-2"><X className="w-4 h-4" /> Anuluj</button>}
+                            <button type="submit" disabled={!validationStatus.isValid || (!formData.isFinal && currentFormTotal <= 0)} className={`flex-[2] py-3 px-4 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 text-white ${!validationStatus.isValid || (!formData.isFinal && currentFormTotal <= 0) ? 'bg-slate-400 cursor-not-allowed' : editingId ? 'bg-[#FFCC00] text-[#003399] hover:bg-yellow-400' : 'bg-[#003399] hover:bg-[#002277]'}`}>{editingId ? <Save className="w-5 h-5" /> : <Plus className="w-5 h-5" />}{editingId ? 'Zapisz Zmiany' : (formData.isFinal ? 'Zatwierdź Końcowy' : 'Dodaj Transzę')}</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="text-center py-8">
+                           <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"><CheckCircle className="w-8 h-8 text-green-600" /></div>
+                           <h3 className="font-bold text-[#003399]">Projekt Rozliczony</h3>
+                           <p className="text-sm text-slate-500 mt-2">Aby wprowadzić zmiany, edytuj wiersze w tabeli.</p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Statystyki */}
+                    <div className="bg-[#003399] text-white p-6 rounded-xl shadow-md border-t-4 border-[#FFCC00]">
+                      <h3 className="text-sm font-bold text-[#FFCC00] uppercase tracking-wider mb-4 border-b border-white/20 pb-2">Status Realizacji</h3>
+                      <div className="space-y-4 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-blue-100">Wykorzystane Dofinansowanie:</span>
+                          <div className="text-right">
+                            <span className={`block font-bold text-lg ${totalsValidation.grantMatch ? 'text-[#FFCC00]' : (totals.requested > projectSettings.grantValue && projectSettings.grantValue > 0 ? 'text-red-400' : 'text-white')}`}>{formatCurrency(totals.requested)}</span>
+                            {projectSettings.grantValue && <span className="text-xs text-blue-300">z {formatCurrency(projectSettings.grantValue)}</span>}
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-blue-100">Rozliczona Wartość Projektu:</span>
+                          <div className="text-right">
+                            <span className={`block font-bold text-lg ${totalsValidation.valueMatch ? 'text-[#FFCC00]' : (totals.settledTotal > projectSettings.totalValue && projectSettings.totalValue > 0 ? 'text-red-400' : 'text-white')}`}>{formatCurrency(totals.settledTotal)}</span>
+                            {projectSettings.totalValue && <span className="text-xs text-blue-300">z {formatCurrency(projectSettings.totalValue)}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Prawa kolumna - Tabela */}
+                  <div className="xl:col-span-3 space-y-6">
+                    <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+                      <div className="overflow-x-auto max-h-[800px]">
+                        <table className="w-full text-left text-sm relative">
+                          <thead className="bg-[#003399] text-white">
+                            <tr>
+                              <th rowSpan="2" className="px-4 py-4 font-bold w-12 text-[#FFCC00] border-r border-blue-800">Lp.</th>
+                              <th rowSpan="2" className="px-4 py-4 font-bold border-r border-blue-800 w-32">Okres</th>
+                              <th colSpan="5" className="px-4 py-2 font-bold text-center border-b border-blue-800 bg-[#002277]">Wnioskowane Środki (PLN)</th>
+                              <th colSpan="3" className="px-4 py-2 font-bold text-center border-b border-blue-800 bg-green-900/50">Rozliczenie (PLN)</th>
+                              <th rowSpan="2" className="px-2 py-4 font-bold text-center text-[#FFCC00] border-l border-blue-800 w-24">% Rozl. zaliczki</th>
+                              <th rowSpan="2" className="px-4 py-4 font-bold text-center text-[#FFCC00]">Opcje</th>
+                            </tr>
+                            <tr>
+                              <th className="px-2 py-2 font-semibold text-right text-blue-200 text-xs bg-[#002b80]">Bieżące (UE)</th>
+                              <th className="px-2 py-2 font-semibold text-right text-blue-200 text-xs bg-[#002b80]">Bieżące (BP)</th>
+                              <th className="px-2 py-2 font-semibold text-right text-blue-200 text-xs bg-[#002b80]">Mająt. (UE)</th>
+                              <th className="px-2 py-2 font-semibold text-right text-blue-200 text-xs bg-[#002b80]">Mająt. (BP)</th>
+                              <th className="px-2 py-2 font-bold text-right text-[#FFCC00] bg-[#002277]">RAZEM</th>
+                              <th className="px-2 py-2 font-semibold text-right text-green-100 text-xs bg-green-800/50">Z dotacji</th>
+                              <th className="px-2 py-2 font-semibold text-right text-green-100 text-xs bg-green-800/50">Wkład wł.</th>
+                              <th className="px-2 py-2 font-bold text-right text-white bg-green-900/50">RAZEM</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-blue-50">
+                            {rows.length === 0 ? (
+                              <tr><td colSpan="12" className="px-6 py-12 text-center text-slate-400"><div className="flex flex-col items-center gap-2"><Info className="w-10 h-10 text-blue-200" /><p>Brak transz. Dodaj pierwszy wniosek.</p></div></td></tr>
+                            ) : (
+                              rows.map((row, index) => {
+                                const cumulativeSettledGrant = rows.slice(0, index + 1).reduce((acc, r) => acc + (r.settledGrant || 0), 0);
+                                const previousRequestedGrant = rows.slice(0, index).reduce((acc, r) => acc + (r.requestedAmount || 0), 0);
+                                const percentSettled = previousRequestedGrant > 0 ? (cumulativeSettledGrant / previousRequestedGrant) * 100 : null;
+
+                                return (
+                                <tr key={row.id} className={`hover:bg-blue-50/50 transition-colors ${row.id === editingId ? 'bg-yellow-50 ring-2 ring-[#FFCC00] inset-0' : ''}`}>
+                                  <td className="px-4 py-4 font-bold text-[#003399] border-r border-slate-100">{row.isFinal ? <Flag className="w-4 h-4 text-[#FFCC00] fill-current" /> : row.lp}</td>
+                                  <td className="px-4 py-4 text-slate-700 border-r border-slate-100 text-xs">{formatDate(row.periodStart)}<br/>{formatDate(row.periodEnd)}{row.isFinal && <span className="block mt-1 text-[#003399] font-bold">Końcowy</span>}</td>
+                                  
+                                  <td className="px-2 py-4 text-right text-slate-600 font-mono text-xs border-r border-slate-100">{row.isFinal ? '-' : formatCurrency(row.currentExpensesEU)}</td>
+                                  <td className="px-2 py-4 text-right text-slate-600 font-mono text-xs border-r border-slate-100">{row.isFinal ? '-' : formatCurrency(row.currentExpensesState)}</td>
+                                  <td className="px-2 py-4 text-right text-slate-600 font-mono text-xs border-r border-slate-100">{row.isFinal ? '-' : formatCurrency(row.capitalExpensesEU)}</td>
+                                  <td className="px-2 py-4 text-right text-slate-600 font-mono text-xs border-r border-slate-100">{row.isFinal ? '-' : formatCurrency(row.capitalExpensesState)}</td>
+                                  <td className="px-2 py-4 text-right font-bold text-[#003399] bg-blue-50/30 border-r border-blue-100">{row.isFinal ? <span className="text-slate-300">-</span> : formatCurrency(row.requestedAmount)}</td>
+
+                                  <td className="px-2 py-4 text-right text-green-700 font-mono text-xs border-r border-green-50">{formatCurrency(row.settledGrant)}</td>
+                                  <td className="px-2 py-4 text-right text-green-700 font-mono text-xs border-r border-green-50">{formatCurrency(row.settledOwn)}</td>
+                                  <td className="px-2 py-4 text-right font-bold text-green-800 bg-green-50/30 border-r border-green-100">{formatCurrency((row.settledGrant||0)+(row.settledOwn||0))}</td>
+
+                                  <td className={`px-2 py-4 text-center font-bold text-xs ${percentSettled !== null && percentSettled < 75 ? 'text-red-500' : 'text-green-600'}`}>
+                                     {formatPercent(percentSettled)}
+                                  </td>
+
+                                  <td className="px-4 py-4 text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button onClick={() => handleEditRow(row)} disabled={editingId === row.id} className={`p-1.5 rounded transition ${editingId === row.id ? 'text-gray-300' : 'text-blue-600 hover:text-[#FFCC00] hover:bg-[#003399]'}`}><Edit2 className="w-4 h-4" /></button>
+                                      <button onClick={() => handleDeleteRow(row.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                              })
+                            )}
+                          </tbody>
+                          {rows.length > 0 && (
+                            <tfoot className="bg-[#003399] text-white border-t-4 border-[#FFCC00]">
+                              <tr>
+                                <td colSpan="2" className="px-4 py-3 text-right uppercase text-xs text-[#FFCC00] font-bold tracking-wider border-r border-blue-800">Suma:</td>
+                                <td className="px-2 py-3 text-right font-mono text-xs text-blue-200 border-r border-blue-800">{formatCurrency(totals.currentEU)}</td>
+                                <td className="px-2 py-3 text-right font-mono text-xs text-blue-200 border-r border-blue-800">{formatCurrency(totals.currentState)}</td>
+                                <td className="px-2 py-3 text-right font-mono text-xs text-blue-200 border-r border-blue-800">{formatCurrency(totals.capitalEU)}</td>
+                                <td className="px-2 py-3 text-right font-mono text-xs text-blue-200 border-r border-blue-800">{formatCurrency(totals.capitalState)}</td>
+                                <td className={`px-2 py-3 text-right font-bold border-r border-blue-800 ${totalsValidation.grantMatch ? 'text-[#FFCC00]' : 'text-white'}`}>{formatCurrency(totals.requested)}</td>
+                                <td className="px-2 py-3 text-right font-mono text-xs text-green-200 border-r border-green-800">{formatCurrency(totals.settledGrant)}</td>
+                                <td className="px-2 py-3 text-right font-mono text-xs text-green-200 border-r border-green-800">{formatCurrency(totals.settledOwn)}</td>
+                                <td className={`px-2 py-3 text-right font-bold ${totalsValidation.valueMatch ? 'text-[#FFCC00]' : 'text-white'}`}>{formatCurrency(totals.settledTotal)}</td>
+                                <td></td>
+                                <td></td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<PaymentSchedule />);
+    </script>
+</body>
+</html>
