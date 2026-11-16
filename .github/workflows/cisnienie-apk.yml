@@ -1,0 +1,46 @@
+name: Build APK (Ciśnienie)
+
+on:
+  push:
+    paths:
+      - 'cisnienie-app/**'
+      - '.github/workflows/cisnienie-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Build APK
+        working-directory: cisnienie-app
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../Cisnienie.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cisnienie-apk
+          path: Cisnienie.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cisnienie-latest
+          name: Ciśnienie – najnowsza wersja
+          body: Aplikacja do notowania pomiarów ciśnienia (kalendarz, wiele osób). Pobierz plik Cisnienie.apk i zainstaluj na telefonie.
+          prerelease: false
+          make_latest: true
+          files: Cisnienie.apk
