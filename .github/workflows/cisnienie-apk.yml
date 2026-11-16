@@ -20,12 +20,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Build APK
         working-directory: cisnienie-app
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease
+          # ponawianie na wypadek chwilowych limitów Maven Central (HTTP 429)
+          for i in 1 2 3; do
+            ./gradlew --no-daemon assembleRelease && break
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "Ponawiam za $((i*60)) s..."; sleep $((i*60))
+          done
           cp app/build/outputs/apk/release/app-release.apk ../Cisnienie.apk
 
       - uses: actions/upload-artifact@v4
